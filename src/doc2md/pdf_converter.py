@@ -243,7 +243,13 @@ class PdfConverter:
         except subprocess.TimeoutExpired:
             raise RuntimeError(f'MinerU timed out after {self.timeout}s on {label}')
         except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode() if e.stderr else str(e)
+            if e.stderr:
+                try:
+                    stderr = e.stderr.decode('utf-8')
+                except UnicodeDecodeError:
+                    stderr = e.stderr.decode('gbk', errors='replace')
+            else:
+                stderr = str(e)
             raise RuntimeError(f'MinerU failed on {label}: {stderr}')
 
     # ---- Structured text extraction ----
