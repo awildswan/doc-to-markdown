@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
 from doc2md.models import ConvertResult
@@ -133,7 +134,9 @@ def _images_to_pdf(image_paths: list[Path], output_path: Path) -> Path:
 
 
 class PdfConverter:
-    def __init__(self, timeout: int = 600, lang: str = 'ch', dpi: int = 300):
+    def __init__(self, engine: str = 'auto', timeout: int = 600,
+                 lang: str = 'ch', dpi: int = 300):
+        self.engine = engine
         self.timeout = timeout
         self.lang = lang
         self.dpi = dpi
@@ -142,9 +145,19 @@ class PdfConverter:
         source_path = Path(path).resolve()
         ext = source_path.suffix.lower()
 
-        if ext == '.pdf':
+        # -- auto / pymupdf: try structured text extraction (unless engine=mineru) --
+        skip_text = (self.engine == 'mineru')
+        if not skip_text and ext == '.pdf':
             text_content = self._extract_text_pymupdf(source_path)
-            if text_content and len(text_content.strip()) >= MIN_TEXT_LENGTH and not self._is_text_garbled(text_content):
+            has_text = text_content and len(text_content.strip()) >= MIN_TEXT_LENGTH
+            if self.engine == 'pymupdf':
+                return ConvertResult(
+                    content=text_content,
+                    source_format='pdf',
+                    source_path=str(path),
+                    metadata={'engine': 'pymupdf', 'method': 'text-extraction-structured'},
+                )
+            if has_text and not self._is_text_garbled(text_content):
                 return ConvertResult(
                     content=text_content,
                     source_format='pdf',
@@ -153,6 +166,7 @@ class PdfConverter:
                 )
             logger.info('PDF has insufficient text layer, running OCR')
 
+        # -- OCR path (auto fallback / mineru force / image input) --
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir).resolve()
 
@@ -178,6 +192,17 @@ class PdfConverter:
             },
         )
 
+    @staticmethod
+    def _check_api(url: str = 'http://127.0.0.1:8777',
+                   timeout: float = 2.0) -> bool:
+        """Check if mineru-api persistent service is reachable."""
+        try:
+            req = urllib.request.Request(f'{url}/health', method='GET')
+            resp = urllib.request.urlopen(req, timeout=timeout)
+            return 200 <= resp.status < 300
+        except Exception:
+            return False
+
     def _run_ocr(self, input_path: Path, output_dir: Path) -> str:
         if not shutil.which('mineru'):
             raise RuntimeError("MinerU not found. Install: pip install 'mineru[all]'")
@@ -189,8 +214,12 @@ class PdfConverter:
             '-o', str(job_dir),
             '-b', 'hybrid-auto-engine',
             '-l', self.lang,
-            '--api-url', 'http://127.0.0.1:8777',
         ]
+        if self._check_api():
+            cmd.extend(['--api-url', 'http://127.0.0.1:8777'])
+            logger.info('MinerU API service detected, using persistent backend')
+        else:
+            logger.info('MinerU API not available, running local pipeline')
         self._exec(cmd, str(input_path))
 
         md_files = list(job_dir.glob(f'**/{input_path.stem}*.md'))
