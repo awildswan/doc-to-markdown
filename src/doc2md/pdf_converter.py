@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 import os
 import shutil
@@ -5,13 +6,19 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from doc2md.models import ConvertResult
 
-try:
-    import jieba
+if TYPE_CHECKING:
+    import numpy as np
+
+jieba_spec = importlib.util.find_spec('jieba')
+if jieba_spec is not None:
+    jieba = importlib.util.module_from_spec(jieba_spec)
+    jieba_spec.loader.exec_module(jieba)  # type: ignore[union-attr]
     _has_jieba = True
-except ImportError:
+else:
     jieba = None
     _has_jieba = False
 
