@@ -137,6 +137,83 @@ def _images_to_pdf(image_paths: list[Path], output_path: Path) -> Path:
     return output_path
 
 
+# ---- Oversized table flattening ----
+
+
+def _flatten_oversized_tables(content: str) -> str:
+    """Flatten tables that are too long (likely text wrapped in `<table>` by VLM).
+
+    - Tables with > min_rows are expanded: each row becomes a paragraph.
+    - If a `<td>` cell starts with a clause marker (e.g. 第1条, 第X章),
+      it is promoted to a `##` heading.
+    - Genuine data tables (short, multi-column) are left untouched.
+    """
+    import re
+
+    # -- helper: count rows in a <table> block --
+    def _count_rows(table_html: str) -> int:
+        return len(re.findall(r'<tr>', table_html))
+
+    # -- helper: check if a table looks like text-in-disguise --
+    def _is_text_table(rows: list[str]) -> bool:
+        """Flatten single-column tables that contain paragraph-length text.
+        Multi-column tables are always kept as real data tables."""
+        for row in rows:
+            if len(re.findall(r'<td[^>]*>', row)) > 1:
+                return False  # multi-column → real data table
+        # Single-column: flatten if any cell is a long paragraph
+        for row in rows:
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
+            for c in cells:
+                plain = re.sub(r'<[^>]+>', '', c).strip()
+                if len(plain) > 80:
+                    return True
+        return False  # all cells short → data list, keep
+
+    # -- helper: convert a text-table row to markdown --
+    CLAUSE_RE = re.compile(
+        r'^\s*(第\s*[一二三四五六七八九十\d]+\s*[条章节])'
+    )
+
+    def _row_to_md(row_html: str) -> str:
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+        lines: list[str] = []
+        for cell in cells:
+            plain = re.sub(r'<[^>]+>', '', cell).strip()
+            if not plain:
+                continue
+            m = CLAUSE_RE.search(plain)
+            if m:
+                title = plain[:m.end()]
+                rest = plain[m.end():].strip('。，、 ')
+                lines.append(f'## {title}')
+                if rest:
+                    lines.append('')
+                    lines.append(rest)
+            else:
+                lines.append(plain)
+        return '\n'.join(lines)
+
+    # -- split content into fragments: (is_table, text) --
+    pattern = re.compile(r'(<table>.*?</table>)', re.DOTALL)
+    parts = pattern.split(content)
+
+    result: list[str] = []
+    for part in parts:
+        if part.startswith('<table>') and part.endswith('</table>'):
+            inner = part[len('<table>'):-len('</table>')]
+            rows = re.findall(r'<tr>(.*?)</tr>', inner, re.DOTALL)
+            if _is_text_table(rows):
+                flattened = '\n\n'.join(_row_to_md(r) for r in rows if r.strip())
+                result.append(flattened)
+            else:
+                result.append(part)
+        else:
+            result.append(part)
+
+    return ''.join(result)
+
+
 # ---- PdfConverter ----
 
 
@@ -177,17 +254,18 @@ class PdfConverter:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir).resolve()
 
-            if ext == '.pdf':
+            if ext in IMAGE_EXTENSIONS:
+                # Image: preprocess (Otsu + denoise), then render to PDF for OCR
                 page_images = _preprocess_pdf_pages(source_path, tmpdir_path, dpi=self.dpi)
                 merged_pdf = _images_to_pdf(page_images, tmpdir_path / 'merged.pdf')
                 ocr_input = merged_pdf
-            elif ext in IMAGE_EXTENSIONS:
-                ocr_input = source_path
             else:
+                # PDF: pass directly to mineru, its layout analysis handles it better
                 ocr_input = source_path
 
             content = self._run_ocr(ocr_input, tmpdir_path)
-            content = _clean_text(content)
+            # content = _clean_text(content)  # jieba filtering eats table rows
+            content = _flatten_oversized_tables(content)
 
         return ConvertResult(
             content=content,
