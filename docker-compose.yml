@@ -1,0 +1,19 @@
+# ── doc2md docker compose ──────────────────────────────────────────
+# 用法:
+#   docker compose build
+#   docker compose run --rm doc2md /data/report.xlsx
+#   docker compose run --rm doc2md /data/scan.pdf --engine mineru
+#
+# GPU 加速扫描件 OCR:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm doc2md /data/scan.pdf
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  doc2md:
+    build: .
+    image: doc2md:latest
+    volumes:
+      - ./:/data           # 挂载当前目录到容器
+    working_dir: /data
+    stdin_open: true
+    tty: true

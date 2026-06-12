@@ -9,12 +9,31 @@
 | PDF（文本层） | pymupdf | 结构化提取：字号推断标题层级、坐标对齐检测表格 |
 | PDF（扫描件）/图片 | MinerU + GPU | VLM 版面分析 + OCR + 表格还原，GPU 加速 |
 
-## 环境配置（Windows + GPU）
+## 环境配置
 
-### 前提
+### Docker（一键）
+
+镜像已打包所有依赖（Python 3.12 + doc2md + MinerU + LibreOffice + Java），无需手动配环境：
+
+```bash
+# 构建
+docker build -t doc2md .
+
+# Excel / Word / PDF
+docker run --rm -v "$(pwd):/data" doc2md /data/report.xlsx
+docker run --rm -v "$(pwd):/data" doc2md /data/document.docx
+docker run --rm -v "$(pwd):/data" doc2md /data/scan.pdf --engine mineru
+
+# GPU 加速（需 nvidia-docker）
+docker run --gpus all --rm -v "$(pwd):/data" doc2md /data/scan.pdf --engine mineru
+```
+
+### 手动安装（Windows + GPU）
+
+前提
 
 - Python 3.12（3.14 不支持 MinerU）
-- NVIDIA 显卡 + CUDA 驱动（本机 RTX 3050 4GB + CUDA 12.9）
+- 显卡 + CUDA 驱动（本机 RTX 3050 4GB + CUDA 12.9）
 
 ### 1. 创建虚拟环境
 
@@ -91,7 +110,7 @@ output/nbd-1/hybrid_auto/
 ```bash
 python -m doc2md report.xlsx               # Excel
 python -m doc2md document.docx             # Word
-python -m doc2md scan.pdf --engine mineru  # PDF 扫描件
+python -m doc2md scan.pdf --engine mineru  # PDF 
 ```
 
 ### Python API
@@ -104,16 +123,7 @@ print(result.content)
 result.save("output.md")
 ```
 
-## 后处理：超长表格展开
 
-**问题**：扫描件中合同条款被边框包裹，MinerU 将其识别为单列表格，整个文档塞进一个 `<table>` 里，层级崩溃。
-
-**解决**：`pdf_converter.py` 内置 `_flatten_oversized_tables`：
-
-| 条件 | 处理 |
-|------|------|
-| 单列表格 + 行数 ≥ 7 | 展开为段落，"第X条" 识别为 `##` 标题 |
-| 多列表格 | 保留不动（真数据表） |
 
 ## 性能
 
@@ -133,7 +143,7 @@ result.save("output.md")
 | `Can not find $env:CUDA_PATH` | 缺少环境变量 | `export CUDA_PATH=...` |
 | `offload_folder` 错误 | 4GB 显存放不下完整模型 | 重启或换 `pipeline` 后端 |
 | 下载 hash 不匹配 | 代理/网络干扰 | 清代理 + 设 `--no-cache-dir` |
-| turbomind 编译 23 分钟 | `MINERU_FORCE_VLM_OCR_ENABLE=0` 触发重新编译 | 保持 `=0`，等待完成 |
+| turbomind 编译 过长 | `MINERU_FORCE_VLM_OCR_ENABLE=0` 触发重新编译 | 保持 `=0`，等待完成 |
 
 ## 依赖
 

@@ -1,0 +1,15 @@
+# GPU 加速配置（需要 nvidia-docker）
+# 用法:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml run --rm doc2md /data/scan.pdf --engine mineru
+
+services:
+  doc2md:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - MINERU_MODEL_SOURCE=local

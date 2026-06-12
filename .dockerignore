@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+
+# Test files
+tests/
+test_sample*
+
+# Output
+output/
+*.md.tmp
+
+# Docker itself
+Dockerfile
+.dockerignore
+docker-compose*.yml
+fix-docker.bat
+
+# OS
+Thumbs.db
+.DS_Store
